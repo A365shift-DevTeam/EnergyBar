@@ -10,11 +10,23 @@ interface Props {
 const IMG_ASPECT = 16 / 9;
 const SOURCE_WIDTH = 1280;
 const SOURCE_HEIGHT = 720;
+const MIN_STARTUP_LOADER_MS = 1200;
+const STARTUP_LOADER_FADE_MS = 350;
+
+const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'dghhdz3et';
+const USE_CLOUDINARY = import.meta.env.VITE_USE_CLOUDINARY !== 'false';
+// Keep in sync with the preload link in index.html so the first frame is a cache hit.
+const CLOUDINARY_TRANSFORM = 'f_auto,q_auto:eco';
 
 function getFrameSrc(product: Product, frameNumber: number) {
   const sourceFrameNumber = (product.frameStart ?? 1) + frameNumber - 1;
   const padded = sourceFrameNumber.toString().padStart(product.framePadLength ?? 3, '0');
-  return `${product.folderPath}/${product.framePrefix ?? ''}${padded}.${product.frameExtension || 'jpg'}`;
+  const fileName = `${product.framePrefix ?? ''}${padded}.${product.frameExtension || 'jpg'}`;
+
+  if (USE_CLOUDINARY && product.cloudinaryFolder) {
+    return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/${CLOUDINARY_TRANSFORM}/${product.cloudinaryFolder}/${fileName}`;
+  }
+  return `${product.folderPath}/${fileName}`;
 }
 
 export default function ProductPackScroll({ product, mobileContent }: Props) {
@@ -25,6 +37,7 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
   const isMobile = useIsMobile();
   const totalFrames = product.frameCount || 120;
   const [isReady, setIsReady] = useState(false);
+  const [showStartupLoader, setShowStartupLoader] = useState(true);
 
   const getNearestLoadedImage = useCallback((targetIndex: number) => {
     const images = imagesRef.current;
@@ -83,10 +96,14 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
     imagesRef.current = new Array(totalFrames).fill(null);
     currentFrameRef.current = 0;
     setIsReady(false);
+    setShowStartupLoader(true);
 
     let isMounted = true;
     let animationFrame = 0;
     let idleHandle = 0;
+    let loaderReadyTimer = 0;
+    let loaderHideTimer = 0;
+    const loaderStartedAt = performance.now();
     const scheduleTimeout = window.setTimeout.bind(window);
     const cancelTimeout = window.clearTimeout.bind(window);
     const pending = new Map<number, Promise<HTMLImageElement | null>>();
@@ -180,8 +197,17 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
     void loadFrame(0).then((image) => {
       if (!isMounted || !image) return;
       drawFrame(0);
-      setIsReady(true);
       scheduleIdleWarmup();
+
+      const elapsed = performance.now() - loaderStartedAt;
+      const remaining = Math.max(0, MIN_STARTUP_LOADER_MS - elapsed);
+      loaderReadyTimer = scheduleTimeout(() => {
+        if (!isMounted) return;
+        setIsReady(true);
+        loaderHideTimer = scheduleTimeout(() => {
+          if (isMounted) setShowStartupLoader(false);
+        }, STARTUP_LOADER_FADE_MS);
+      }, remaining);
     });
 
     window.addEventListener('scroll', requestScrollUpdate, { passive: true });
@@ -193,6 +219,8 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
       window.removeEventListener('scroll', requestScrollUpdate);
       window.removeEventListener('resize', requestScrollUpdate);
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      cancelTimeout(loaderReadyTimer);
+      cancelTimeout(loaderHideTimer);
       if ('cancelIdleCallback' in window) window.cancelIdleCallback(idleHandle);
       else cancelTimeout(idleHandle);
     };
@@ -241,14 +269,6 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
             }
           />
 
-          {!isReady && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-brand-forest gap-4" aria-live="polite">
-              <div className="w-10 h-10 rounded-full border-2 border-brand-accent/30 border-t-brand-accent animate-spin" />
-              <p className="font-mono text-[10px] sm:text-xs uppercase tracking-[0.35em] text-white/70">
-                Loading product
-              </p>
-            </div>
-          )}
         </div>
 
         {isMobile && mobileContent && (
@@ -267,6 +287,37 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
           />
         )}
       </div>
+
+      {showStartupLoader && (
+        <div
+          data-startup-loader
+          role="status"
+          aria-live="polite"
+          aria-label="Loading Energy Bar experience"
+          className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-brand-forest transition-opacity duration-300 ${
+            isReady ? 'pointer-events-none opacity-0' : 'opacity-100'
+          }`}
+        >
+          <div className="relative mb-8 flex h-20 w-20 items-center justify-center">
+            <div className="absolute inset-0 rounded-full border border-brand-accent/35 animate-ping" />
+            <div className="absolute inset-2 rounded-full border border-brand-gold/30" />
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-moss shadow-2xl shadow-black/30">
+              <span className="block h-7 w-3 rotate-45 rounded-full rounded-tr-none bg-brand-accent" />
+            </div>
+          </div>
+
+          <p className="font-display text-lg font-semibold uppercase tracking-[0.28em] text-white sm:text-xl">
+            Energy Bar
+          </p>
+          <p className="mt-3 font-mono text-[9px] uppercase tracking-[0.38em] text-white/45 sm:text-[10px]">
+            Crafting your experience
+          </p>
+
+          <div className="mt-8 h-px w-36 overflow-hidden bg-white/10 sm:w-44">
+            <div className="startup-loader-bar h-full w-1/2 bg-brand-accent" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

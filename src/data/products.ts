@@ -5,6 +5,8 @@ export interface Product {
   image?: string;
   description: string;
   folderPath: string;
+  /** Cloudinary folder holding the frames; falls back to folderPath when unset. */
+  cloudinaryFolder?: string;
   frameCount?: number;
   frameStart?: number;
   framePrefix?: string;
@@ -36,6 +38,7 @@ export const products: Product[] = [
     image: "/energy-bar.webp",
     description: "Jaggery Bound - Millet Seeds - Sesame - No Refined Sugar",
     folderPath: "/1st-product",
+    cloudinaryFolder: "energy-bar-frames",
     frameCount: 210,
     frameStart: 31,
     framePrefix: "",

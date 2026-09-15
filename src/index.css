@@ -40,6 +40,16 @@ html {
   contain-intrinsic-size: auto 900px;
 }
 
+.startup-loader-bar {
+  animation: startup-loader-sweep 1s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes startup-loader-sweep {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(310%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
