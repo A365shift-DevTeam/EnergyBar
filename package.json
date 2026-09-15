@@ -12,6 +12,7 @@
     "upload-frames": "node --env-file=.env.local scripts/upload-frames-cloudinary.mjs"
   },
   "dependencies": {
+    "lenis": "^1.3.26",
     "lucide-react": "^0.546.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1"

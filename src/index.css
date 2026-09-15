@@ -1,7 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --nav-height: 5rem;
+  --nav-height: 3.5rem;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --nav-height: 4rem;
+  }
 }
 
 @theme {
@@ -31,23 +37,9 @@ body {
   font-family: var(--font-body);
 }
 
-html {
-  scroll-behavior: smooth;
-}
-
 .defer-render {
   content-visibility: auto;
   contain-intrinsic-size: auto 900px;
-}
-
-.startup-loader-bar {
-  animation: startup-loader-sweep 1s ease-in-out infinite;
-  will-change: transform;
-}
-
-@keyframes startup-loader-sweep {
-  from { transform: translateX(-110%); }
-  to { transform: translateX(310%); }
 }
 
 @media (prefers-reduced-motion: reduce) {

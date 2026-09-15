@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { Product } from '../data/products';
 import { useIsMobile } from '../hooks/useIsMobile';
 
@@ -10,8 +10,23 @@ interface Props {
 const IMG_ASPECT = 16 / 9;
 const SOURCE_WIDTH = 1280;
 const SOURCE_HEIGHT = 720;
-const MIN_STARTUP_LOADER_MS = 1200;
-const STARTUP_LOADER_FADE_MS = 350;
+const WARMUP_CONCURRENCY = 6;
+
+// Coarse-to-fine order so the whole animation is roughly scrubbable early.
+function getWarmupOrder(totalFrames: number) {
+  const seen = new Set<number>([0]);
+  const order: number[] = [];
+  for (const step of [24, 12, 6, 3, 1]) {
+    for (let index = step; index < totalFrames; index += step) {
+      if (!seen.has(index)) {
+        seen.add(index);
+        order.push(index);
+      }
+    }
+  }
+  if (!seen.has(totalFrames - 1)) order.push(totalFrames - 1);
+  return order;
+}
 
 const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'dghhdz3et';
 const USE_CLOUDINARY = import.meta.env.VITE_USE_CLOUDINARY !== 'false';
@@ -36,8 +51,6 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
   const currentFrameRef = useRef(0);
   const isMobile = useIsMobile();
   const totalFrames = product.frameCount || 120;
-  const [isReady, setIsReady] = useState(false);
-  const [showStartupLoader, setShowStartupLoader] = useState(true);
 
   const getNearestLoadedImage = useCallback((targetIndex: number) => {
     const images = imagesRef.current;
@@ -95,15 +108,10 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
   useEffect(() => {
     imagesRef.current = new Array(totalFrames).fill(null);
     currentFrameRef.current = 0;
-    setIsReady(false);
-    setShowStartupLoader(true);
 
     let isMounted = true;
     let animationFrame = 0;
     let idleHandle = 0;
-    let loaderReadyTimer = 0;
-    let loaderHideTimer = 0;
-    const loaderStartedAt = performance.now();
     const scheduleTimeout = window.setTimeout.bind(window);
     const cancelTimeout = window.clearTimeout.bind(window);
     const pending = new Map<number, Promise<HTMLImageElement | null>>();
@@ -178,36 +186,28 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
       if (!animationFrame) animationFrame = window.requestAnimationFrame(updateFrameFromScroll);
     };
 
-    const warmSparseKeyframes = async () => {
-      for (let index = 12; index < totalFrames; index += 12) {
-        if (!isMounted) return;
-        await loadFrame(index);
-      }
-      if (isMounted) await loadFrame(totalFrames - 1);
+    const warmFrames = async () => {
+      const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+      const order = getWarmupOrder(totalFrames).filter((index) => !connection?.saveData || index % 12 === 0);
+      let next = 0;
+      const worker = async () => {
+        while (isMounted && next < order.length) await loadFrame(order[next++]);
+      };
+      await Promise.all(Array.from({ length: WARMUP_CONCURRENCY }, worker));
     };
 
     const scheduleIdleWarmup = () => {
       if ('requestIdleCallback' in window) {
-        idleHandle = window.requestIdleCallback(() => void warmSparseKeyframes(), { timeout: 1800 });
+        idleHandle = window.requestIdleCallback(() => void warmFrames(), { timeout: 300 });
       } else {
-        idleHandle = scheduleTimeout(() => void warmSparseKeyframes(), 500);
+        idleHandle = scheduleTimeout(() => void warmFrames(), 100);
       }
     };
 
     void loadFrame(0).then((image) => {
-      if (!isMounted || !image) return;
-      drawFrame(0);
+      if (!isMounted) return;
+      if (image) drawFrame(currentFrameRef.current);
       scheduleIdleWarmup();
-
-      const elapsed = performance.now() - loaderStartedAt;
-      const remaining = Math.max(0, MIN_STARTUP_LOADER_MS - elapsed);
-      loaderReadyTimer = scheduleTimeout(() => {
-        if (!isMounted) return;
-        setIsReady(true);
-        loaderHideTimer = scheduleTimeout(() => {
-          if (isMounted) setShowStartupLoader(false);
-        }, STARTUP_LOADER_FADE_MS);
-      }, remaining);
     });
 
     window.addEventListener('scroll', requestScrollUpdate, { passive: true });
@@ -219,8 +219,6 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
       window.removeEventListener('scroll', requestScrollUpdate);
       window.removeEventListener('resize', requestScrollUpdate);
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
-      cancelTimeout(loaderReadyTimer);
-      cancelTimeout(loaderHideTimer);
       if ('cancelIdleCallback' in window) window.cancelIdleCallback(idleHandle);
       else cancelTimeout(idleHandle);
     };
@@ -261,7 +259,7 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
             ref={canvasRef}
             role="img"
             aria-label={`${product.name} product animation`}
-            className="w-full block touch-none"
+            className="w-full block"
             style={
               isMobile
                 ? { height: `calc(100vw / ${IMG_ASPECT})` }
@@ -287,37 +285,6 @@ export default function ProductPackScroll({ product, mobileContent }: Props) {
           />
         )}
       </div>
-
-      {showStartupLoader && (
-        <div
-          data-startup-loader
-          role="status"
-          aria-live="polite"
-          aria-label="Loading Energy Bar experience"
-          className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-brand-forest transition-opacity duration-300 ${
-            isReady ? 'pointer-events-none opacity-0' : 'opacity-100'
-          }`}
-        >
-          <div className="relative mb-8 flex h-20 w-20 items-center justify-center">
-            <div className="absolute inset-0 rounded-full border border-brand-accent/35 animate-ping" />
-            <div className="absolute inset-2 rounded-full border border-brand-gold/30" />
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-moss shadow-2xl shadow-black/30">
-              <span className="block h-7 w-3 rotate-45 rounded-full rounded-tr-none bg-brand-accent" />
-            </div>
-          </div>
-
-          <p className="font-display text-lg font-semibold uppercase tracking-[0.28em] text-white sm:text-xl">
-            Energy Bar
-          </p>
-          <p className="mt-3 font-mono text-[9px] uppercase tracking-[0.38em] text-white/45 sm:text-[10px]">
-            Crafting your experience
-          </p>
-
-          <div className="mt-8 h-px w-36 overflow-hidden bg-white/10 sm:w-44">
-            <div className="startup-loader-bar h-full w-1/2 bg-brand-accent" />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

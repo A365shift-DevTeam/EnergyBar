@@ -1,14 +1,18 @@
+import { useEffect } from 'react';
 import { products } from './data/products';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ProductPackScroll from './components/ProductPackScroll';
 import StorySection from './components/StorySection';
 import { useIsMobile } from './hooks/useIsMobile';
+import { startSmoothScroll } from './lib/smoothScroll';
 
 const product = products[0];
 
 export default function App() {
   const isMobile = useIsMobile();
+
+  useEffect(() => startSmoothScroll(), []);
 
   return (
     <div className="min-h-screen overflow-x-clip bg-brand-surface text-brand-ink antialiased">
